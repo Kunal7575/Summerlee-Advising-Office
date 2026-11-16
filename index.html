@@ -1204,9 +1204,10 @@ async function loadAdvisors() {
       throw new Error(data?.message || "Your intake request is not currently eligible for appointment booking.");
     }
     const allRules = parseMaybeJsonArray(data.advisorRules);
-    const assignedName = String(data.assignedAdvisor || "").trim();
+    const assignedEmail = String(data.assignedAdvisor || "").trim();
+    
     const matchingRules = allRules.filter(rule =>
-      !assignedName || normalizeText(rule?.advisorName) === normalizeText(assignedName)
+      normalizeText(rule?.advisorEmail) === normalizeText(assignedEmail)
     );
     const uniqueEmails = [...new Set(matchingRules
       .map(rule => normalizeText(rule?.advisorEmail))
