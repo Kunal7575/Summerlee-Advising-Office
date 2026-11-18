@@ -141,6 +141,17 @@ button:disabled{cursor:not-allowed;opacity:.6}
   font-size:12px;
   color:rgba(255,255,255,.9);
 }
+.sign-out-btn{
+  margin-left:15px;
+  border:1px solid rgba(255,255,255,.65);
+  border-radius:4px;
+  padding:5px 10px;
+  background:transparent;
+  color:#fff;
+  font-size:12px;
+  font-weight:600;
+}
+.sign-out-btn:hover{background:rgba(255,255,255,.14)}
 .panel{padding:26px 52px;border-bottom:1px solid var(--line)}
 .section-title{
   text-align:center;
@@ -432,6 +443,16 @@ uofg-header, uofg-footer { display:block; width:100%; }
 .existing-booking-help{background:#f5f6f8;border-left:3px solid #0b4a7d;padding:15px 17px;margin-top:20px;line-height:1.6;color:#405567;font-size:13px}
 .existing-booking-help p{margin:0 0 7px}
 .existing-booking-help p:last-child{margin-bottom:0}
+.existing-booking-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.existing-booking-actions button{min-height:42px;border-radius:5px;padding:10px 18px;font-size:13px;font-weight:700}
+.reschedule-booking-btn{background:var(--blue);color:#fff;border:1px solid var(--blue)}
+.cancel-booking-btn{background:#fff;color:var(--danger);border:1px solid var(--danger)}
+.existing-booking-actions button:hover{filter:brightness(.95)}
+.existing-booking-action-status{margin-top:12px;padding:11px 13px;border:1px solid #bed1e0;background:#f5f9fc;color:#294456;border-radius:5px;font-size:13px;line-height:1.5}
+.existing-booking-action-status a{color:var(--blue);font-weight:700}
+.existing-booking-badge.cancelled{background:#f0f0f0;color:#555}
+.existing-booking-badge.cancelled::before{background:#777}
+@media(max-width:480px){.existing-booking-actions button{width:100%}}
 .existing-booking-help a{color:#0b4a7d;font-weight:700}
 @media(max-width:720px){.existing-booking-panel{padding:26px 22px}.existing-booking-grid{grid-template-columns:1fr;gap:17px}}
 
@@ -512,6 +533,7 @@ button:focus-visible { outline:3px solid #0067b8; outline-offset:3px; }
         <strong id="headerName"></strong>
         ·
         <span id="headerEmail"></span>
+        <button type="button" id="signOutBtn" class="sign-out-btn">Sign out</button>
       </div>
     </header>
     <!-- Existing appointment: shown instead of the booking form when Flow 2 reports alreadyBooked. -->
@@ -526,10 +548,16 @@ button:focus-visible { outline:3px solid #0067b8; outline-offset:3px; }
         <div class="appointment-field"><span>Meeting type</span><strong id="existingService">To be confirmed</strong></div>
         <div class="appointment-field"><span>Date</span><strong id="existingDate">To be confirmed</strong></div>
         <div class="appointment-field"><span>Time</span><strong id="existingTime">To be confirmed</strong></div>
+        <div class="appointment-field"><span>Request ID</span><strong id="existingRequestId">Not available</strong></div>
       </div>
+      <div class="existing-booking-actions" aria-label="Manage your appointment">
+        <button type="button" id="rescheduleBookingBtn" class="reschedule-booking-btn">Reschedule Booking</button>
+        <button type="button" id="cancelBookingBtn" class="cancel-booking-btn">Cancel Booking</button>
+      </div>
+      <div id="existingBookingActionStatus" class="existing-booking-action-status hidden" role="status" aria-live="polite"></div>
       <div class="existing-booking-help">
         <p>Check your confirmation email or calendar invitation for any location or Microsoft Teams joining instructions.</p>
-        <p>To reschedule or cancel, please contact <a href="mailto:bscweb@uoguelph.ca">bscweb@uoguelph.ca</a>.</p>
+        <p id="existingBookingPolicyMessage">Rescheduling requests are handled by email. Cancellation requests made on the appointment date or the day before are also handled by email.</p>
       </div>
     </section>
     <section id="appointmentLookupPanel" class="panel appointment-lookup hidden" role="status" aria-live="polite">
@@ -643,6 +671,11 @@ button:focus-visible { outline:3px solid #0067b8; outline-offset:3px; }
 const FLOW_URL = "https://defaultbe62a12b2cad49a1a5fa85f4f3156a.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/30/workflows/cb149b8ad6074d0dbbfcfe5324d8dd90/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=tmcis_usONrwR4LEAdADMpFlkwQ_EZ1debtnXnXzZoQ";
 const AVAILABILITY_FLOW_URL = "https://defaultbe62a12b2cad49a1a5fa85f4f3156a.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/19/workflows/da93a422ddcd4ca4a5ec87d969c6716c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=WST9pSnPDvT54gyHTZqxH-MjrHqIUNnACCLfDbw5iZw";
 const BOOKING_FLOW_URL = "https://defaultbe62a12b2cad49a1a5fa85f4f3156a.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/21/workflows/beaaabec2d70471c887fe959a402c64b/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=klFdEBFfAGuZ-1i9ZwU1jAriSLxmWmoZON59TlNBfYM";
+// Use a separate Power Automate HTTP flow for confirmed cancellation.
+// Leave blank until the flow validates session, request ID, booking ownership,
+// local-date cutoff and deletes the matching event successfully.
+const CANCEL_BOOKING_FLOW_URL = "https://defaultbe62a12b2cad49a1a5fa85f4f3156a.7d.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/15/workflows/e6fdc55747d449b582f86286e2872a25/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=A6O3-fXRMaNeczmGjEtBqEbIeSahGjLt7Qw4T6hyVpo";
+const SUMMERLEE_CONTACT_EMAIL = "bscweb@uoguelph.ca";
 const $ = id => document.getElementById(id);
 // 45-second in-memory availability cache. Fresh Outlook checks still occur for new dates.
 const AVAILABILITY_CACHE_TTL_MS = 45 * 1000;
@@ -703,6 +736,7 @@ const state = {
   staff: null,
   staffEmail: null,
   intakeRequestId: null,
+  existingBooking: null,
   date: null,
   time: null,
   selectedSlot: null,
@@ -712,6 +746,48 @@ const state = {
   timerHandle: null,
   availabilityRequestId: 0
 };
+/* ============================================================
+   VERIFIED SESSION ACROSS PAGE RELOADS
+   sessionStorage survives refreshes in the same tab, but is not shared
+   persistently across all future browser sessions. Never save the OTP.
+   Backend must recheck the server-side SharePoint session on every call.
+   ============================================================ */
+const VERIFIED_SESSION_KEY = "summerlee_verified_session_v1";
+function saveVerifiedSession() {
+  if (!state.email || !state.sessionId || state.userType !== "uog") return;
+  try {
+    window.sessionStorage.setItem(VERIFIED_SESSION_KEY, JSON.stringify({
+      email: state.email,
+      sessionId: state.sessionId
+    }));
+  } catch (error) {
+    console.warn("Session storage is unavailable; a refresh will require another sign-in.");
+  }
+}
+function clearVerifiedSession() {
+  try { window.sessionStorage.removeItem(VERIFIED_SESSION_KEY); } catch (_) {}
+}
+function getSavedVerifiedSession() {
+  try {
+    const raw = window.sessionStorage.getItem(VERIFIED_SESSION_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    if (typeof saved?.email !== "string" ||
+        !/^[^\s@]+@uoguelph\.ca$/i.test(saved.email) ||
+        typeof saved?.sessionId !== "string" ||
+        !saved.sessionId.trim() || saved.sessionId.length > 2048) {
+      clearVerifiedSession();
+      return null;
+    }
+    return {email: saved.email.toLowerCase(), sessionId: saved.sessionId};
+  } catch (_) {
+    clearVerifiedSession();
+    return null;
+  }
+}
+function isExpiredSessionError(error) {
+  return error?.httpStatus === 401 && /session|expired|sign in/i.test(String(error.message || ""));
+}
 /* ============================================================
    POWER AUTOMATE HELPER
    ============================================================ */
@@ -740,7 +816,9 @@ async function callGateway(payload, url = FLOW_URL) {
       if (payload.action === "bookAppointment" && response.status >= 500) {
         throw new Error("We could not confirm whether the booking completed. Check your email or contact advising before making another booking.");
       }
-      throw new Error(data?.message || `The request could not be completed (HTTP ${response.status}).`);
+      const httpError = new Error(data?.message || `The request could not be completed (HTTP ${response.status}).`);
+      httpError.httpStatus = response.status;
+      throw httpError;
     }
     return data;
   } catch (error) {
@@ -988,6 +1066,7 @@ $("verifyBtn").onclick = async () => {
       throw new Error("Verification session was not returned.");
     }
     state.sessionId = data.sessionId;
+    saveVerifiedSession();
     availabilityCache.clear();
     availabilityInFlight.clear();
     state.advisorRules = [];
@@ -1062,9 +1141,10 @@ function updateTimer() {
 /* ============================================================
    EXISTING APPOINTMENT VIEW
    Flow 2 / getAdvisors can return:
-   { success:true, status:"alreadyBooked", existingBooking: {
-       advisorName, advisorEmail, serviceType, start, end
+   { success:true, status:"alreadyBooked", intakeRequestId: 123, existingBooking: {
+       advisorName, advisorEmail, serviceType, start, end, intakeRequestId
    }}
+   The request ID may be returned on existingBooking or at the top level.
    start/end MUST be SharePoint UTC timestamps (ISO 8601, with Z).
    ============================================================ */
 function showLookupState(title = "Checking your appointment status...", message = "Retrieving your advising request and booking details.", action = "") {
@@ -1122,6 +1202,16 @@ function showExistingBooking(booking) {
     : rawService.includes("person") ? "In Person Meeting"
     : String(booking.serviceType || booking.service || "See your confirmation email");
   $("existingAdvisor").textContent = booking.advisorName || booking.advisorEmail || "Assigned academic advisor";
+  // Preserve the intake Request ID for a future server-side cancellation flow.
+  // Never use the locally generated booking reference as the intake request ID.
+  const requestId = booking.intakeRequestId ?? booking.requestId ?? booking.RequestID ?? state.intakeRequestId;
+  if (requestId != null && String(requestId).trim()) state.intakeRequestId = requestId;
+  $("existingRequestId").textContent = state.intakeRequestId != null && String(state.intakeRequestId).trim()
+    ? String(state.intakeRequestId).trim() : "Not available";
+  $("existingBookingActionStatus").classList.add("hidden");
+  $("existingBookingActionStatus").textContent = "";
+  state.existingBooking = { ...booking, intakeRequestId: state.intakeRequestId };
+  updateExistingBookingPolicyMessage();
   $("existingService").textContent = service;
   $("existingDate").textContent = booking.localDateLabel || appointmentDateTime(booking.start, {
     weekday:"long", month:"long", day:"numeric", year:"numeric"
@@ -1141,6 +1231,157 @@ function showExistingBooking(booking) {
   $("existingBookingPanel").classList.remove("hidden");
   $("toast").classList.add("hidden");
 }
+
+/* ============================================================
+   EXISTING APPOINTMENT ACTIONS
+   Summerlee policy (America/Toronto calendar dates):
+     - Rescheduling: always contact the office by email.
+     - Cancelling today or tomorrow: email the office.
+     - Cancelling 2+ calendar days ahead: use dedicated cancellation flow.
+   The backend MUST repeat these checks. Client-side dates aren't authority.
+   ============================================================ */
+let cancellationInProgress = false;
+
+function easternCalendarDayIndex(dateValue) {
+  const date = dateValue instanceof Date ? dateValue :
+    (typeof dateValue === "string" && /(Z|[+-]\d{2}:\d{2})$/i.test(dateValue)
+      ? new Date(dateValue) : new Date(NaN));
+  if (!Number.isFinite(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date);
+  const get = type => Number(parts.find(part => part.type === type)?.value);
+  const y = get("year"), m = get("month"), d = get("day");
+  if (!y || !m || !d) return null;
+  return Math.round(Date.UTC(y, m - 1, d) / 86400000);
+}
+function calendarDaysUntilAppointment(booking) {
+  const appointmentDay = easternCalendarDayIndex(booking?.start);
+  const today = easternCalendarDayIndex(new Date());
+  return appointmentDay == null || today == null ? null : appointmentDay - today;
+}
+function canCancelOnline(booking) {
+  const days = calendarDaysUntilAppointment(booking);
+  return days != null && days >= 2;
+}
+function cancellationFlowConfigured() {
+  return /^https:\/\//i.test(CANCEL_BOOKING_FLOW_URL) && !CANCEL_BOOKING_FLOW_URL.includes("PASTE_");
+}
+function updateExistingBookingPolicyMessage() {
+  const policy = $("existingBookingPolicyMessage");
+  const days = calendarDaysUntilAppointment(state.existingBooking);
+  if (days != null && days >= 2) {
+    policy.textContent = cancellationFlowConfigured()
+      ? "Rescheduling requests go to Summerlee by email. You may cancel online until the day before your appointment."
+      : "Rescheduling requests go to Summerlee by email. Online cancellation is being configured; you can still request cancellation by email.";
+  } else {
+    policy.textContent = "For appointments today or tomorrow, both rescheduling and cancellation must be requested by email. Your appointment remains confirmed until the advising office processes your request.";
+  }
+}
+function statusForExistingBooking(message, fallbackMailto = "") {
+  const status = $("existingBookingActionStatus");
+  status.textContent = message;
+  if (fallbackMailto) {
+    status.appendChild(document.createTextNode(" "));
+    const link = document.createElement("a");
+    link.href = fallbackMailto;
+    link.textContent = "Open email draft";
+    status.appendChild(link);
+  }
+  status.classList.remove("hidden");
+}
+function existingBookingMailto(kind) {
+  const booking = state.existingBooking || {};
+  const requestId = String(booking.intakeRequestId || state.intakeRequestId || "Not available");
+  const isReschedule = kind === "reschedule";
+  const action = isReschedule ? "Reschedule" : "Cancel";
+  const subject = `Summerlee Advising - ${action} appointment request - ${requestId}`;
+  const body = [
+    "Hello Summerlee Academic Advising,", "",
+    `I would like to request a ${isReschedule ? "rescheduling" : "cancellation"} of my advising appointment.`, "",
+    `Request ID: ${requestId}`,
+    `Student email: ${state.email || ""}`,
+    `Academic advisor: ${booking.advisorName || booking.advisorEmail || "Not available"}`,
+    `Meeting type: ${$("existingService").textContent}`,
+    `Date: ${$("existingDate").textContent}`,
+    `Time: ${$("existingTime").textContent}`, "",
+    "Reason / additional details:",
+    "[Please add your message here]", "",
+    "Please confirm once my request has been processed.", "",
+    "Thank you."
+  ].join("\n");
+  return `mailto:${SUMMERLEE_CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function openExistingBookingEmail(kind, explanation = "") {
+  const draft = existingBookingMailto(kind);
+  statusForExistingBooking((explanation ? explanation + " " : "") +
+    "A prefilled email draft should open. Review and send it to advising. Your appointment has NOT been changed or cancelled.", draft);
+  window.location.href = draft;
+}
+$("rescheduleBookingBtn").onclick = () => {
+  openExistingBookingEmail("reschedule");
+};
+$("cancelBookingBtn").onclick = async () => {
+  if (cancellationInProgress) return;
+  const booking = state.existingBooking;
+  // Missing or untrusted date details, today, and the day before all use email.
+  if (!canCancelOnline(booking)) {
+    openExistingBookingEmail("cancel");
+    return;
+  }
+  if (!cancellationFlowConfigured()) {
+    openExistingBookingEmail("cancel", "Online cancellation is not connected yet.");
+    return;
+  }
+  if (!state.sessionId || !state.intakeRequestId || !state.email) {
+    openExistingBookingEmail("cancel", "We couldn't verify the details needed for online cancellation.");
+    return;
+  }
+  if (!window.confirm("Cancel this Summerlee academic advising appointment? This will request cancellation of the booking and its calendar invitation.")) return;
+
+  const button = $("cancelBookingBtn");
+  let cancellationSucceeded = false;
+  cancellationInProgress = true;
+  button.disabled = true;
+  button.textContent = "Cancelling...";
+  statusForExistingBooking("Submitting your cancellation request...");
+  try {
+    const response = await callGateway({
+      action: "cancelAppointment",
+      email: state.email,
+      challengeId: state.sessionId,
+      intakeRequestId: String(state.intakeRequestId)
+    }, CANCEL_BOOKING_FLOW_URL);
+    // Require the server to explicitly confirm completion, not just HTTP 200.
+    if (response?.success !== true || normalizeText(response?.status) !== "cancelled") {
+      throw new Error(response?.message || "We could not confirm cancellation. Your appointment may still be booked.");
+    }
+    $("existingBookingPanel").querySelector(".existing-booking-badge").textContent = "Cancelled";
+    $("existingBookingPanel").querySelector(".existing-booking-badge").classList.add("cancelled");
+    $("existingBookingPanel").querySelector(".existing-booking-description").textContent = "This appointment has been cancelled.";
+    $("rescheduleBookingBtn").disabled = true;
+    $("cancelBookingBtn").disabled = true;
+    cancellationSucceeded = true;
+    statusForExistingBooking("Your appointment was cancelled successfully. The advising office will send a confirmation if configured in the flow.");
+  } catch (error) {
+    if (isExpiredSessionError(error)) {
+      clearVerifiedSession();
+      window.location.reload();
+      return;
+    }
+    // Never claim failure means the calendar was unchanged: timeout could be ambiguous.
+    statusForExistingBooking((error?.message || "We couldn't confirm whether cancellation completed.") +
+      " Please verify with advising before trying again.", existingBookingMailto("cancel"));
+  } finally {
+    cancellationInProgress = false;
+    if (!cancellationSucceeded) {
+      button.disabled = false;
+      button.textContent = "Cancel Booking";
+    } else {
+      button.textContent = "Cancelled";
+    }
+  }
+};
 
 /* ============================================================
    OPEN BOOKING + PREFILL STUDENT
@@ -1184,6 +1425,8 @@ async function loadAdvisors() {
     // Checking for an existing appointment takes priority over booking eligibility.
     // A booked student may no longer have an eligible booking link or active advisor rules.
     const status = normalizeText(data?.status);
+    // Flow 2 may return the intake request ID outside existingBooking.
+    state.intakeRequestId = data.intakeRequestId ?? data.requestId ?? null;
     if (status === "alreadybooked" || status === "booked") {
       if (data?.existingBooking && typeof data.existingBooking === "object") {
         showExistingBooking(data.existingBooking);
@@ -1217,7 +1460,7 @@ async function loadAdvisors() {
       throw new Error("We could not identify one assigned academic advisor for your intake request. Please contact Summerlee Academic Advising.");
     }
     const assignedRule = matchingRules[0];
-    state.staff = String(assignedRule.advisorName || assignedName).trim();
+    state.staff = String(assignedRule.advisorName || assignedRule.advisorEmail || "Assigned academic advisor").trim();
     state.staffEmail = String(assignedRule.advisorEmail || "").trim();
     state.advisorRules = matchingRules;
     state.intakeRequestId = data.intakeRequestId ?? data.requestId ?? null;
@@ -1238,6 +1481,12 @@ async function loadAdvisors() {
     }
   } catch (error) {
     if (state.sessionId !== loadingSession) return;
+    if (isExpiredSessionError(error)) {
+      // A saved session is never sufficient by itself: the server rejected it.
+      clearVerifiedSession();
+      window.location.reload();
+      return;
+    }
     console.error("Advisor loading failed:", error);
     state.advisorRules = [];
     state.staff = null;
@@ -1272,6 +1521,7 @@ function openBooking() {
   state.staffEmail = null;
   state.advisorRules = [];
   state.intakeRequestId = null;
+  state.existingBooking = null;
   $("bookBtn").textContent = "Book";
   $("bookingStatus").classList.add("hidden");
   $("toast").classList.add("hidden");
@@ -1758,11 +2008,15 @@ $("bookBtn").onclick = async () => {
     bookingCompleted = true;
     availabilityCache.clear();
     btn.textContent = "Booked";
+    if (result.intakeRequestId != null || result.requestId != null) {
+      state.intakeRequestId = result.intakeRequestId ?? result.requestId;
+    }
     // Immediate read-only confirmation after a successful booking response.
     // On subsequent sign-ins, Flow 2 supplies the authoritative SharePoint details.
     showExistingBooking(result.existingBooking || {
       advisorName: state.staff,
       advisorEmail: state.staffEmail,
+      intakeRequestId: state.intakeRequestId,
       serviceType: apiServiceType(),
       localDateLabel: friendlyDate(state.date),
       localTimeLabel: `${formatSlotTime(state.selectedSlot.start)} to ${formatSlotTime(state.selectedSlot.end)} (Eastern Time)`
@@ -1791,8 +2045,26 @@ $("uogEmail").addEventListener("keydown", event => {
 $("verificationCode").addEventListener("keydown", event => {
   if (event.key === "Enter" && !$("verifyBtn").disabled) $("verifyBtn").click();
 });
+// Signing out discards the locally stored credential. The backend session
+// expires according to its separate SharePoint SessionExpiresAtUTC setting.
+$("signOutBtn").onclick = () => {
+  clearVerifiedSession();
+  window.location.reload();
+};
 renderCalendar();
 updateSummary();
+
+// A reload reuses the verified session only after Power Automate checks it.
+// If the session is expired, loadAdvisors clears it and returns to sign-in.
+const savedVerifiedSession = getSavedVerifiedSession();
+if (savedVerifiedSession) {
+  state.userType = "uog";
+  state.email = savedVerifiedSession.email;
+  state.sessionId = savedVerifiedSession.sessionId;
+  $("uogEmail").value = savedVerifiedSession.email;
+  openBooking();
+  void loadAdvisors();
+}
 </script>
 </body>
 </html>
